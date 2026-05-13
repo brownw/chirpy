@@ -37,9 +37,9 @@ func (cfg *apiConfig) resetHandler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	mux := http.NewServeMux()
 	apiCfg := &apiConfig{}
-	mux.HandleFunc("/healthz", readinessHandler)
-	mux.HandleFunc("/metrics", apiCfg.requestsHandler)
-	mux.HandleFunc("/reset", apiCfg.resetHandler)
+	mux.HandleFunc("GET /api/healthz", readinessHandler)
+	mux.HandleFunc("GET /api/metrics", apiCfg.requestsHandler)
+	mux.HandleFunc("POST /api/reset", apiCfg.resetHandler)
 	fileServer := http.FileServer(http.Dir("."))
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", fileServer)))
 	server := http.Server{
