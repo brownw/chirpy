@@ -1,0 +1,10 @@
+-- +goose Up
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    email VARCHAR(255) NOT NULL UNIQUE
+);
+
+-- +goose Down
+DROP TABLE users;
