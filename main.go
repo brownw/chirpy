@@ -43,6 +43,14 @@ type User struct {
 	Email     string       `json:"email"`
 }
 
+type Chirp struct {
+	ID        uuid.UUID    `json:"id"`
+	CreatedAt sql.NullTime `json:"created_at"`
+	UpdatedAt sql.NullTime `json:"updated_at"`
+	Body      string       `json:"body"`
+	UserID    uuid.UUID    `json:"user_id"`
+}
+
 // Updated response structure to include the cleaned text
 type ValidChirpResponse struct {
 	CleanedBody string `json:"cleaned_body"`
@@ -73,7 +81,7 @@ func (cfg *apiConfig) requestsHandler(w http.ResponseWriter, r *http.Request) {
 </html>`, cfg.fileserverHits.Load())))
 }
 
-func validationHandler(w http.ResponseWriter, r *http.Request) {
+func (cfg *apiConfig) chirpHandler(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	var req ChirpRequest
 
@@ -99,9 +107,33 @@ func validationHandler(w http.ResponseWriter, r *http.Request) {
 	// Filter the profanity from the text
 	cleaned := getCleanedBody(req.Body)
 
-	// Return the success code and the sanitized payload
-	respondWithJSON(w, http.StatusOK, ValidChirpResponse{
-		CleanedBody: cleaned,
+	type parameters struct {
+		Body    string    `json:"body"`
+		User_id uuid.UUID `json:"user_id"`
+	}
+
+	parms := parameters{
+		Body:    cleaned,
+		User_id: uuid.New(),
+	}
+
+	// Create the chirp using the DB query helper
+	createdChirp, err := cfg.dbQueries.CreateChirp(r.Context(), database.CreateChirpParams{
+		Body:   parms.Body,
+		UserID: parms.User_id,
+	})
+	if err != nil {
+		log.Printf("Error creating chirp: %v", err)
+		respondWithError(w, http.StatusInternalServerError, "Failed to create chirp")
+		return
+	}
+
+	respondWithJSON(w, http.StatusCreated, Chirp{
+		ID:        createdChirp.ID,
+		CreatedAt: createdChirp.CreatedAt,
+		UpdatedAt: createdChirp.UpdatedAt,
+		Body:      createdChirp.Body,
+		UserID:    createdChirp.UserID,
 	})
 }
 
@@ -202,7 +234,7 @@ func main() {
 	mux.HandleFunc("GET /admin/metrics", apiCfg.requestsHandler)
 	mux.HandleFunc("POST /admin/reset", apiCfg.resetHandler)
 	mux.HandleFunc("POST /api/users", apiCfg.createUserHandler)
-	mux.HandleFunc("POST /api/validate_chirp", validationHandler)
+	mux.HandleFunc("POST /api/chirps", apiCfg.chirpHandler)
 	fileServer := http.FileServer(http.Dir("."))
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", fileServer)))
 	server := http.Server{
