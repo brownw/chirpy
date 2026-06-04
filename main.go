@@ -83,7 +83,7 @@ func (cfg *apiConfig) requestsHandler(w http.ResponseWriter, r *http.Request) {
 
 func (cfg *apiConfig) chirpHandler(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
-	var req ChirpRequest
+	var req Chirp
 
 	// Decode JSON and handle malformed requests
 	if err := decoder.Decode(&req); err != nil {
@@ -114,7 +114,7 @@ func (cfg *apiConfig) chirpHandler(w http.ResponseWriter, r *http.Request) {
 
 	parms := parameters{
 		Body:    cleaned,
-		User_id: uuid.New(),
+		User_id: req.UserID,
 	}
 
 	// Create the chirp using the DB query helper
@@ -145,6 +145,7 @@ func (cfg *apiConfig) resetHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	deletedRows, err := cfg.dbQueries.ResetUsers(r.Context())
 	if err != nil {
+		log.Printf("reset error: %v", err)
 		respondWithError(w, http.StatusInternalServerError, "Failed to reset users")
 		return
 	}
