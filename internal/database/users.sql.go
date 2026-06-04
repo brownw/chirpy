@@ -10,13 +10,8 @@ import (
 )
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO users (id, created_at, updated_at, email)
-VALUES (
-    gen_random_uuid(),
-    now(),
-    now(),
-    $1
-)
+INSERT INTO users (email)
+VALUES ($1)
 RETURNING id, created_at, updated_at, email
 `
 
@@ -30,4 +25,16 @@ func (q *Queries) CreateUser(ctx context.Context, email string) (User, error) {
 		&i.Email,
 	)
 	return i, err
+}
+
+const resetUsers = `-- name: ResetUsers :execrows
+DELETE FROM users
+`
+
+func (q *Queries) ResetUsers(ctx context.Context) (int64, error) {
+	result, err := q.db.ExecContext(ctx, resetUsers)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

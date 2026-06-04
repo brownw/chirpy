@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 
 	"github.com/brownw/chirpy/internal/database"
+	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 )
@@ -18,6 +19,7 @@ import (
 type apiConfig struct {
 	fileserverHits atomic.Int32
 	dbQueries      *database.Queries
+	platform       string
 }
 
 type ChirpRequest struct {
@@ -32,6 +34,13 @@ type ErrorResponse struct {
 // Response structure for valid chirps
 type ValidResponse struct {
 	Valid bool `json:"valid"`
+}
+
+type User struct {
+	ID        uuid.UUID    `json:"id"`
+	CreatedAt sql.NullTime `json:"created_at"`
+	UpdatedAt sql.NullTime `json:"updated_at"`
+	Email     string       `json:"email"`
 }
 
 // Updated response structure to include the cleaned text
@@ -98,6 +107,46 @@ func validationHandler(w http.ResponseWriter, r *http.Request) {
 
 func (cfg *apiConfig) resetHandler(w http.ResponseWriter, r *http.Request) {
 	cfg.fileserverHits.Store(0)
+	if cfg.platform == "production" {
+		respondWithError(w, http.StatusForbidden, "Reset is not allowed in production")
+		return
+	}
+	deletedRows, err := cfg.dbQueries.ResetUsers(r.Context())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to reset users")
+		return
+	}
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"deleted_rows": deletedRows,
+	})
+}
+
+func (cfg *apiConfig) createUserHandler(w http.ResponseWriter, r *http.Request) {
+	type parameters struct {
+		Email string `json:"email"`
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	parms := parameters{}
+	err := decoder.Decode(&parms)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+
+	createdUser, err := cfg.dbQueries.CreateUser(r.Context(), parms.Email)
+	if err != nil {
+		log.Printf("Error creating user: %v", err)
+		respondWithError(w, http.StatusInternalServerError, "Failed to create user")
+		return
+	}
+
+	respondWithJSON(w, http.StatusCreated, User{
+		ID:        createdUser.ID,
+		CreatedAt: createdUser.CreatedAt,
+		UpdatedAt: createdUser.UpdatedAt,
+		Email:     createdUser.Email,
+	})
 }
 
 func respondWithError(w http.ResponseWriter, code int, msg string) {
@@ -138,16 +187,21 @@ func main() {
 	godotenv.Load()
 
 	dbURL := os.Getenv("DB_URL")
+	platform := os.Getenv("PLATFORM")
+	if platform == "" {
+		log.Fatal("PLATFORM variable is not set")
+	}
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	dbQueries := database.New(db)
 	mux := http.NewServeMux()
-	apiCfg := &apiConfig{dbQueries: dbQueries}
+	apiCfg := &apiConfig{dbQueries: dbQueries, platform: platform}
 	mux.HandleFunc("GET /api/healthz", readinessHandler)
 	mux.HandleFunc("GET /admin/metrics", apiCfg.requestsHandler)
 	mux.HandleFunc("POST /admin/reset", apiCfg.resetHandler)
+	mux.HandleFunc("POST /api/users", apiCfg.createUserHandler)
 	mux.HandleFunc("POST /api/validate_chirp", validationHandler)
 	fileServer := http.FileServer(http.Dir("."))
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", fileServer)))

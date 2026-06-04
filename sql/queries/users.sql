@@ -1,9 +1,7 @@
 -- name: CreateUser :one
-INSERT INTO users (id, created_at, updated_at, email)
-VALUES (
-    gen_random_uuid(),
-    now(),
-    now(),
-    $1
-)
+INSERT INTO users (email)
+VALUES ($1)
 RETURNING *;
+
+-- name: ResetUsers :execrows
+DELETE FROM users;
