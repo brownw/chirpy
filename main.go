@@ -203,6 +203,32 @@ func (cfg *apiConfig) getChirpsHandler(w http.ResponseWriter, r *http.Request) {
 
 	respondWithJSON(w, http.StatusOK, response)
 }
+func (cfg *apiConfig) getChirpByIDHandler(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	parsedID, err := uuid.Parse(id)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+
+	chirp, err := cfg.dbQueries.GetChirpByID(r.Context(), parsedID)
+	if err != nil {
+		log.Printf("Error fetching chirps: %v", err)
+		respondWithError(w, http.StatusNotFound, "Failed to fetch chirp")
+		return
+	}
+
+	var response Chirp
+	response = Chirp{
+		ID:        chirp.ID,
+		CreatedAt: chirp.CreatedAt,
+		UpdatedAt: chirp.UpdatedAt,
+		Body:      chirp.Body,
+		UserID:    chirp.UserID,
+	}
+
+	respondWithJSON(w, http.StatusOK, response)
+}
 func respondWithError(w http.ResponseWriter, code int, msg string) {
 	respondWithJSON(w, code, ErrorResponse{Error: msg})
 }
@@ -258,6 +284,7 @@ func main() {
 	mux.HandleFunc("POST /api/users", apiCfg.createUserHandler)
 	mux.HandleFunc("POST /api/chirps", apiCfg.chirpHandler)
 	mux.HandleFunc("GET /api/chirps", apiCfg.getChirpsHandler)
+	mux.HandleFunc("GET /api/chirps/{id}", apiCfg.getChirpByIDHandler)
 	fileServer := http.FileServer(http.Dir("."))
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", fileServer)))
 	server := http.Server{
