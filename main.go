@@ -182,6 +182,27 @@ func (cfg *apiConfig) createUserHandler(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+func (cfg *apiConfig) getChirpsHandler(w http.ResponseWriter, r *http.Request) {
+	chirps, err := cfg.dbQueries.GetChirps(r.Context())
+	if err != nil {
+		log.Printf("Error fetching chirps: %v", err)
+		respondWithError(w, http.StatusInternalServerError, "Failed to fetch chirps")
+		return
+	}
+
+	var response []Chirp
+	for _, c := range chirps {
+		response = append(response, Chirp{
+			ID:        c.ID,
+			CreatedAt: c.CreatedAt,
+			UpdatedAt: c.UpdatedAt,
+			Body:      c.Body,
+			UserID:    c.UserID,
+		})
+	}
+
+	respondWithJSON(w, http.StatusOK, response)
+}
 func respondWithError(w http.ResponseWriter, code int, msg string) {
 	respondWithJSON(w, code, ErrorResponse{Error: msg})
 }
@@ -236,6 +257,7 @@ func main() {
 	mux.HandleFunc("POST /admin/reset", apiCfg.resetHandler)
 	mux.HandleFunc("POST /api/users", apiCfg.createUserHandler)
 	mux.HandleFunc("POST /api/chirps", apiCfg.chirpHandler)
+	mux.HandleFunc("GET /api/chirps", apiCfg.getChirpsHandler)
 	fileServer := http.FileServer(http.Dir("."))
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", fileServer)))
 	server := http.Server{
