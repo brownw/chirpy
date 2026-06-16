@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/brownw/chirpy/internal/auth"
 	"github.com/brownw/chirpy/internal/database"
@@ -21,6 +22,7 @@ type apiConfig struct {
 	fileserverHits atomic.Int32
 	dbQueries      *database.Queries
 	platform       string
+	jwtSecret      string
 }
 
 type ChirpRequest struct {
@@ -43,6 +45,14 @@ type User struct {
 	UpdatedAt sql.NullTime `json:"updated_at"`
 	Email     string       `json:"email"`
 	Password  string       `json:"password,omitempty"` // Omit password in JSON responses
+}
+
+type UserResponse struct {
+	ID        uuid.UUID    `json:"id"`
+	CreatedAt sql.NullTime `json:"created_at"`
+	UpdatedAt sql.NullTime `json:"updated_at"`
+	Email     string       `json:"email"`
+	Token     string       `json:"token,omitempty"` // Include token in response
 }
 
 type Chirp struct {
@@ -243,8 +253,9 @@ func (cfg *apiConfig) getChirpByIDHandler(w http.ResponseWriter, r *http.Request
 }
 func (cfg *apiConfig) loginHandler(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
+		Email              string `json:"email"`
+		Password           string `json:"password"`
+		Expires_in_seconds *int   `json:"expires_in_seconds"`
 	}
 
 	decoder := json.NewDecoder(r.Body)
@@ -253,6 +264,19 @@ func (cfg *apiConfig) loginHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid request payload")
 		return
+	}
+
+	maxDuration := 1 * time.Hour
+	var expirationDuration time.Duration
+	if parms.Expires_in_seconds != nil {
+		requestedDuration := time.Duration(*parms.Expires_in_seconds) * time.Second
+		if requestedDuration > maxDuration {
+			expirationDuration = maxDuration
+		} else {
+			expirationDuration = requestedDuration
+		}
+	} else {
+		expirationDuration = maxDuration
 	}
 
 	user, err := cfg.dbQueries.GetUserByEmail(r.Context(), parms.Email)
@@ -268,11 +292,19 @@ func (cfg *apiConfig) loginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, User{
+	token, err := auth.MakeJWT(user.ID, cfg.jwtSecret, expirationDuration)
+	if err != nil {
+		log.Printf("Error generating JWT: %v", err)
+		respondWithError(w, http.StatusInternalServerError, "Failed to generate token")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, UserResponse{
 		ID:        user.ID,
 		CreatedAt: user.CreatedAt,
 		UpdatedAt: user.UpdatedAt,
 		Email:     user.Email,
+		Token:     token,
 	})
 }
 func respondWithError(w http.ResponseWriter, code int, msg string) {
@@ -321,9 +353,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		log.Fatal("JWT_SECRET variable is not set")
+	}
 	dbQueries := database.New(db)
 	mux := http.NewServeMux()
-	apiCfg := &apiConfig{dbQueries: dbQueries, platform: platform}
+	apiCfg := &apiConfig{dbQueries: dbQueries, platform: platform, jwtSecret: jwtSecret}
 	mux.HandleFunc("GET /api/healthz", readinessHandler)
 	mux.HandleFunc("GET /admin/metrics", apiCfg.requestsHandler)
 	mux.HandleFunc("POST /admin/reset", apiCfg.resetHandler)
