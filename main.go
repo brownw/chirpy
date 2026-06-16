@@ -94,6 +94,19 @@ func (cfg *apiConfig) requestsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cfg *apiConfig) chirpHandler(w http.ResponseWriter, r *http.Request) {
+	tokenString, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Missing or invalid Authorization header")
+		return
+	}
+
+	userID, err := auth.ValidateJWT(tokenString, cfg.jwtSecret)
+	if err != nil {
+		log.Printf("JWT validation error: %v", err)
+		respondWithError(w, http.StatusUnauthorized, "Invalid token")
+		return
+	}
+
 	decoder := json.NewDecoder(r.Body)
 	var req Chirp
 
@@ -126,7 +139,7 @@ func (cfg *apiConfig) chirpHandler(w http.ResponseWriter, r *http.Request) {
 
 	parms := parameters{
 		Body:    cleaned,
-		User_id: req.UserID,
+		User_id: userID,
 	}
 
 	// Create the chirp using the DB query helper
